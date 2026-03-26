@@ -179,9 +179,13 @@ async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
                     images.append(src)
                     logger.info("圖片 %d 已是 base64", i)
                 elif src.startswith("http"):
-                    # 用 Playwright 的 request context 下載（帶 cookies，繞 CORS）
+                    # Google 圖片 URL 尾部有縮圖參數（如 =s1024-rj），改成 =s0 取原尺寸
                     import base64
-                    resp = await page.context.request.get(src)
+                    import re
+                    full_src = re.sub(r'=s\d+[^&]*$', '=s0', src)
+                    if full_src != src:
+                        logger.info("圖片 %d 改為原尺寸 URL", i)
+                    resp = await page.context.request.get(full_src)
                     if resp.ok:
                         body = await resp.body()
                         content_type = resp.headers.get("content-type", "image/png")
