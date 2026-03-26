@@ -130,8 +130,7 @@ def remove_watermark(input_path: str, output_path: str | None = None, denoise: s
         "--output", output_path,
         "--remove",
         "--denoise", denoise,
-        "--region", "br:auto",
-        "--snap",
+        "--force",
         "--quiet",
     ]
 
