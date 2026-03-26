@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 
+
 def _setup_logging(verbose: bool = False):
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
@@ -131,7 +132,10 @@ def main():
     args = parser.parse_args()
 
     if args.command == "install":
+        # 安裝 Chromium
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
+        print("\n如需 AI Agent 整合，請參考：")
+        print("  https://github.com/yazelin/gemini-image#ai-agent-整合")
 
     elif args.command == "login":
         asyncio.run(_do_login())

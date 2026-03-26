@@ -115,20 +115,20 @@ original = (watermarked - alpha × logo) / (1 - alpha)
 
 ## AI Agent 整合
 
-本工具提供兩種 AI Agent 整合方式：
+讓你的 AI Agent 能呼叫 `gemini-image` 生圖。
 
-### AGENTS.md（通用）
+### 步驟
 
-Repo 根目錄的 `AGENTS.md` 包含完整的 AI Agent 使用指引，任何 AI（Claude Code、Cursor、Windsurf 等）讀到就知道怎麼用。
-
-### Claude Code Skill
-
-`.claude/skills/generate-image.md` 提供 Claude Code 專用的技能定義，可直接作為工具使用。
+1. 安裝 `gemini-image`（見上方安裝說明）
+2. 把 `AGENTS.md` 加入你的 AI Agent 的上下文：
+   - **Claude Code**：複製 `.claude/skills/generate-image.md` 到你的專案 `.claude/skills/` 或全域 `~/.claude/skills/`
+   - **Cursor / Windsurf**：把 `AGENTS.md` 內容加入你的 rules 設定
+   - **其他 Agent**：讓 Agent 讀取 `AGENTS.md` 作為系統指引
 
 ### CLI 呼叫
 
 ```bash
-gemini-image generate "detailed prompt here" -o /path/to/output.png --no-watermark
+gemini-image generate "detailed english prompt" -o /path/to/output.png --no-watermark
 ```
 
 ### HTTP API
