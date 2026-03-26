@@ -73,18 +73,7 @@ async def api_generate(req: GenerateRequest):
     except asyncio.TimeoutError:
         raise HTTPException(status_code=408, detail=f"請求超時（{req.timeout}秒）")
 
-    if not result.get("success"):
-        error = result.get("error", "unknown")
-        status_map = {
-            "content_blocked": 200,  # 正常回應，只是被拒絕
-            "no_image": 200,
-            "timeout": 408,
-            "browser_error": 502,
-            "not_logged_in": 503,
-        }
-        status = status_map.get(error, 500)
-        if status >= 400:
-            raise HTTPException(status_code=status, detail=result.get("message", ""))
+    # 統一回傳 JSON 格式（不丟 HTTPException），方便呼叫端統一處理
     return result
 
 
