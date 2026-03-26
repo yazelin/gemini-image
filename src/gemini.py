@@ -103,6 +103,20 @@ async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
         # 確保頁面完全就緒
         await asyncio.sleep(1)
 
+        # 1.5 關閉可能的 overlay 彈窗（如 Deep Research）
+        try:
+            await page.evaluate("""() => {
+                // 移除所有 cdk-overlay-container 的內容
+                document.querySelectorAll('.cdk-overlay-container').forEach(el => {
+                    el.innerHTML = '';
+                });
+                // 點擊 ESC 關閉可能的 dialog
+            }""")
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
+
         # 2. 清空並輸入 prompt
         await input_el.click()
         await asyncio.sleep(0.3)
