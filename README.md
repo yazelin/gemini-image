@@ -9,13 +9,14 @@
 ### 一行安裝（推薦）
 
 ```bash
-uv tool install git+https://github.com/yazelin/gemini-image.git && playwright install chromium
-```
+# uv（推薦）
+uv tool install gemini-image && playwright install chromium
 
-或用 pipx：
+# 或 pip
+pip install gemini-image && playwright install chromium
 
-```bash
-pipx install git+https://github.com/yazelin/gemini-image.git && playwright install chromium
+# 或 pipx
+pipx install gemini-image && playwright install chromium
 ```
 
 安裝完成後 `gemini-image` 指令全域可用。
