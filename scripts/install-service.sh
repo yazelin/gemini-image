@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE_NAME="gemini-image-api"
+WORK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+USER="$(whoami)"
+
+sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF
+[Unit]
+Description=Gemini Image API
+After=network.target
+
+[Service]
+Type=simple
+User=${USER}
+WorkingDirectory=${WORK_DIR}
+ExecStart=${WORK_DIR}/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8070
+Restart=on-failure
+RestartSec=10
+Environment=HEADLESS=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable ${SERVICE_NAME}
+sudo systemctl start ${SERVICE_NAME}
+echo "✓ ${SERVICE_NAME} 服務已安裝並啟動"
