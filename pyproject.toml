@@ -13,7 +13,6 @@ dependencies = [
     "playwright>=1.49",
     "python-dotenv>=1.0",
     "httpx>=0.27",
-    "Pillow>=10.0",
 ]
 
 [project.optional-dependencies]

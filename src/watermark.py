@@ -1,116 +1,144 @@
-"""去水印 — 偵測並移除 Gemini 右下角 sparkle 水印"""
+"""去水印 — 自動下載並呼叫 GeminiWatermarkTool CLI 移除可見水印"""
+import io
 import logging
+import platform
+import shutil
+import stat
+import subprocess
+import zipfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+_GWT_NAME = "GeminiWatermarkTool"
+_GWT_VERSION = "v0.2.6"
+_GWT_REPO = "allenk/GeminiWatermarkTool"
 
-def _find_watermark(img) -> tuple[int, int, int, int] | None:
-    """偵測水印位置（掃描右下角的亮色低飽和度區域）
+# 快取目錄：~/.gemini-image/bin/
+_CACHE_DIR = Path.home() / ".gemini-image" / "bin"
 
-    Returns:
-        (x1, y1, x2, y2) 或 None
-    """
-    w, h = img.size
-    # 水印在右下角，掃描範圍
-    scan_w, scan_h = min(120, w // 4), min(80, h // 4)
+# 平台 → release asset 名稱對照
+_PLATFORM_ASSETS = {
+    "linux": "GeminiWatermarkTool-Linux-x64.zip",
+    "darwin": "GeminiWatermarkTool-macOS-Universal.zip",
+    "windows": "GeminiWatermarkTool-Windows-x64.zip",
+}
 
-    bright_xs = []
-    bright_ys = []
 
-    for y in range(h - scan_h, h):
-        for x in range(w - scan_w, w):
-            r, g, b = img.getpixel((x, y))[:3]
-            avg = (r + g + b) / 3
-            spread = max(r, g, b) - min(r, g, b)
-            # 亮且低飽和度 = 白色半透明水印
-            if avg > 200 and spread < 50:
-                bright_xs.append(x)
-                bright_ys.append(y)
+def _get_platform() -> str:
+    system = platform.system().lower()
+    if system == "linux":
+        return "linux"
+    elif system == "darwin":
+        return "darwin"
+    elif system == "windows":
+        return "windows"
+    return system
 
-    if len(bright_xs) < 10:
+
+def _get_exe_name() -> str:
+    if _get_platform() == "windows":
+        return f"{_GWT_NAME}.exe"
+    return _GWT_NAME
+
+
+def _download_gwt() -> str | None:
+    """從 GitHub Releases 下載對應平台的 GeminiWatermarkTool"""
+    plat = _get_platform()
+    asset_name = _PLATFORM_ASSETS.get(plat)
+    if not asset_name:
+        logger.warning("不支援的平台：%s", plat)
         return None
 
-    x1 = min(bright_xs) - 2
-    y1 = min(bright_ys) - 2
-    x2 = max(bright_xs) + 2
-    y2 = max(bright_ys) + 2
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    exe_path = _CACHE_DIR / _get_exe_name()
 
-    wm_w = x2 - x1
-    wm_h = y2 - y1
+    url = f"https://github.com/{_GWT_REPO}/releases/download/{_GWT_VERSION}/{asset_name}"
+    logger.info("下載去水印工具：%s", url)
 
-    # 水印大小合理性檢查（太大或太小都不是水印）
-    if wm_w < 15 or wm_h < 15 or wm_w > 150 or wm_h > 150:
+    try:
+        import httpx
+        resp = httpx.get(url, follow_redirects=True, timeout=60)
+        resp.raise_for_status()
+
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            exe_names = [_GWT_NAME, f"{_GWT_NAME}.exe"]
+            for name in zf.namelist():
+                basename = Path(name).name
+                if basename in exe_names:
+                    data = zf.read(name)
+                    exe_path.write_bytes(data)
+                    if plat != "windows":
+                        exe_path.chmod(exe_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+                    logger.info("去水印工具已安裝：%s", exe_path)
+                    return str(exe_path)
+
+        logger.warning("zip 中找不到執行檔")
+        return None
+    except Exception as e:
+        logger.warning("下載去水印工具失敗：%s", e)
         return None
 
-    return (x1, y1, x2, y2)
+
+def _find_gwt() -> str | None:
+    """找到 GeminiWatermarkTool 執行檔（必要時自動下載）"""
+    exe_name = _get_exe_name()
+
+    # 1. 快取目錄
+    cached = _CACHE_DIR / exe_name
+    if cached.exists() and cached.is_file():
+        return str(cached)
+
+    # 2. PATH 中
+    found = shutil.which(_GWT_NAME)
+    if found:
+        return found
+
+    # 3. 自動下載
+    return _download_gwt()
 
 
-def remove_watermark(input_path: str, output_path: str | None = None) -> str:
-    """移除圖片右下角 Gemini 水印（用高斯模糊 inpainting）
+def remove_watermark(input_path: str, output_path: str | None = None, denoise: str = "ai") -> str:
+    """移除圖片可見水印
 
     Args:
         input_path: 輸入圖片路徑
         output_path: 輸出路徑（預設覆蓋原檔）
+        denoise: 去噪方法（ai/ns/telea/soft/off）
 
     Returns:
         輸出路徑（失敗時回傳原檔路徑）
     """
+    gwt = _find_gwt()
+    if not gwt:
+        logger.warning("GeminiWatermarkTool 未安裝且無法下載，跳過去水印")
+        return input_path
+
     if output_path is None:
         output_path = input_path
 
-    try:
-        from PIL import Image, ImageFilter, ImageDraw
-    except ImportError:
-        logger.warning("Pillow 未安裝，跳過去水印（pip install Pillow）")
-        return input_path
+    cmd = [
+        gwt,
+        "--no-banner",
+        "--input", input_path,
+        "--output", output_path,
+        "--remove",
+        "--denoise", denoise,
+    ]
 
     try:
-        img = Image.open(input_path).convert("RGB")
-        bbox = _find_watermark(img)
-
-        if bbox is None:
-            logger.info("未偵測到水印，跳過")
-            return input_path
-
-        x1, y1, x2, y2 = bbox
-        logger.info("偵測到水印：(%d,%d) to (%d,%d), 大小 %dx%d", x1, y1, x2, y2, x2 - x1, y2 - y1)
-
-        # 用周圍像素高斯模糊填充水印區域
-        w, h = img.size
-        pad = 10
-        bx1 = max(0, x1 - pad)
-        by1 = max(0, y1 - pad)
-        bx2 = min(w, x2 + pad)
-        by2 = min(h, y2 + pad)
-
-        bg_region = img.crop((bx1, by1, bx2, by2))
-        blurred = bg_region.filter(ImageFilter.GaussianBlur(radius=8))
-
-        # 橢圓 mask 讓邊緣自然過渡
-        mask = Image.new("L", bg_region.size, 0)
-        draw = ImageDraw.Draw(mask)
-        inner_x1 = x1 - bx1
-        inner_y1 = y1 - by1
-        inner_x2 = x2 - bx1
-        inner_y2 = y2 - by1
-        draw.ellipse([inner_x1, inner_y1, inner_x2, inner_y2], fill=255)
-        mask = mask.filter(ImageFilter.GaussianBlur(radius=5))
-
-        # 混合
-        result = Image.composite(blurred, bg_region, mask)
-        img.paste(result, (bx1, by1))
-
-        # 儲存（保持原格式品質）
-        ext = Path(input_path).suffix.lower()
-        if ext in (".jpg", ".jpeg"):
-            img.save(output_path, quality=95)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0:
+            logger.info("去水印完成：%s", output_path)
+            return output_path
         else:
-            img.save(output_path)
-
-        logger.info("去水印完成：%s", output_path)
-        return output_path
-
+            logger.info("去水印工具回傳 code %d：%s", result.returncode, result.stderr.strip())
+            return input_path
+    except subprocess.TimeoutExpired:
+        logger.warning("去水印超時")
+        return input_path
     except Exception as e:
         logger.warning("去水印失敗：%s", e)
         return input_path

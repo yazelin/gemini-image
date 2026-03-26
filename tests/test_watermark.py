@@ -1,84 +1,90 @@
 """去水印模組測試"""
 import pytest
 from pathlib import Path
-from PIL import Image, ImageDraw
-from src.watermark import remove_watermark, _find_watermark
+from unittest.mock import patch, MagicMock
+from src.watermark import remove_watermark, _find_gwt, _get_platform, _get_exe_name
 
 
-def _create_test_image(path: str, w: int = 1024, h: int = 559, add_watermark: bool = True):
-    """建立測試圖片，可選加入模擬水印"""
-    img = Image.new("RGB", (w, h), (120, 80, 50))  # 深色背景
-    if add_watermark:
-        # 在右下角畫一個白色半透明 sparkle 模擬水印
-        draw = ImageDraw.Draw(img)
-        wm_x, wm_y = w - 50, h - 50
-        draw.ellipse([wm_x, wm_y, wm_x + 40, wm_y + 40], fill=(230, 230, 230))
-    img.save(path)
-    return path
+class TestPlatformDetection:
+    @patch("src.watermark.platform.system", return_value="Linux")
+    def test_linux(self, mock):
+        assert _get_platform() == "linux"
+
+    @patch("src.watermark.platform.system", return_value="Darwin")
+    def test_macos(self, mock):
+        assert _get_platform() == "darwin"
+
+    @patch("src.watermark.platform.system", return_value="Windows")
+    def test_windows(self, mock):
+        assert _get_platform() == "windows"
+
+    @patch("src.watermark.platform.system", return_value="Windows")
+    def test_exe_name_windows(self, mock):
+        assert _get_exe_name() == "GeminiWatermarkTool.exe"
+
+    @patch("src.watermark.platform.system", return_value="Linux")
+    def test_exe_name_linux(self, mock):
+        assert _get_exe_name() == "GeminiWatermarkTool"
 
 
-class TestFindWatermark:
-    def test_finds_watermark(self, tmp_path):
-        """應偵測到右下角水印"""
-        path = str(tmp_path / "test.png")
-        _create_test_image(path, add_watermark=True)
-        img = Image.open(path)
-        bbox = _find_watermark(img)
-        assert bbox is not None
-        x1, y1, x2, y2 = bbox
-        assert x1 > 900  # 在右邊
-        assert y1 > 450  # 在下面
+class TestFindGwt:
+    def test_returns_string_or_none(self):
+        result = _find_gwt()
+        assert result is None or isinstance(result, str)
 
-    def test_no_watermark(self, tmp_path):
-        """無水印圖片應回傳 None"""
-        path = str(tmp_path / "clean.png")
-        _create_test_image(path, add_watermark=False)
-        img = Image.open(path)
-        bbox = _find_watermark(img)
-        assert bbox is None
+    @patch("src.watermark._download_gwt", return_value="/tmp/gwt")
+    @patch("src.watermark.shutil.which", return_value=None)
+    def test_fallback_to_download(self, mock_which, mock_download, tmp_path):
+        import src.watermark as wm
+        orig = wm._CACHE_DIR
+        wm._CACHE_DIR = tmp_path / "nonexistent"
+        try:
+            result = _find_gwt()
+            mock_download.assert_called_once()
+        finally:
+            wm._CACHE_DIR = orig
 
 
 class TestRemoveWatermark:
-    def test_removes_watermark(self, tmp_path):
-        """有水印的圖片應成功處理"""
-        input_path = str(tmp_path / "input.png")
-        output_path = str(tmp_path / "output.png")
-        _create_test_image(input_path, add_watermark=True)
-        result = remove_watermark(input_path, output_path)
-        assert result == output_path
-        assert Path(output_path).exists()
+    @patch("src.watermark._find_gwt", return_value=None)
+    def test_no_tool_returns_original(self, mock_find):
+        result = remove_watermark("/tmp/test.png")
+        assert result == "/tmp/test.png"
 
-    def test_no_watermark_returns_original(self, tmp_path):
-        """無水印圖片直接回傳原檔"""
-        input_path = str(tmp_path / "clean.png")
-        _create_test_image(input_path, add_watermark=False)
-        result = remove_watermark(input_path)
-        assert result == input_path
+    @patch("src.watermark.subprocess.run")
+    @patch("src.watermark._find_gwt", return_value="/usr/bin/GeminiWatermarkTool")
+    def test_success(self, mock_find, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        result = remove_watermark("/tmp/input.png", "/tmp/output.png")
+        assert result == "/tmp/output.png"
+        args = mock_run.call_args[0][0]
+        assert "--input" in args
+        assert "--output" in args
+        assert "--remove" in args
+        assert "--denoise" in args
 
-    def test_default_overwrites(self, tmp_path):
-        """不指定 output 時覆蓋原檔"""
-        input_path = str(tmp_path / "test.png")
-        _create_test_image(input_path, add_watermark=True)
-        original_size = Path(input_path).stat().st_size
-        result = remove_watermark(input_path)
-        assert result == input_path
-        # 檔案應該被修改過
-        assert Path(input_path).exists()
+    @patch("src.watermark.subprocess.run")
+    @patch("src.watermark._find_gwt", return_value="/usr/bin/GeminiWatermarkTool")
+    def test_failure_returns_original(self, mock_find, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stderr="No watermark found")
+        result = remove_watermark("/tmp/input.png", "/tmp/output.png")
+        assert result == "/tmp/input.png"
 
-    def test_nonexistent_file(self):
-        """不存在的檔案回傳原路徑"""
-        result = remove_watermark("/tmp/nonexistent_image.png")
-        assert result == "/tmp/nonexistent_image.png"
+    @patch("src.watermark.subprocess.run")
+    @patch("src.watermark._find_gwt", return_value="/usr/bin/GeminiWatermarkTool")
+    def test_timeout_returns_original(self, mock_find, mock_run):
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gwt", timeout=60)
+        result = remove_watermark("/tmp/input.png")
+        assert result == "/tmp/input.png"
 
-    def test_jpeg_output(self, tmp_path):
-        """JPEG 格式應正確儲存"""
-        input_path = str(tmp_path / "test.jpg")
-        img = Image.new("RGB", (1024, 559), (120, 80, 50))
-        draw = ImageDraw.Draw(img)
-        draw.ellipse([974, 509, 1014, 549], fill=(230, 230, 230))
-        img.save(input_path, quality=95)
-        result = remove_watermark(input_path)
-        assert result == input_path
-        # 確認還是合法 JPEG
-        reopened = Image.open(input_path)
-        assert reopened.size == (1024, 559)
+    @patch("src.watermark.subprocess.run")
+    @patch("src.watermark._find_gwt", return_value="/usr/bin/GeminiWatermarkTool")
+    def test_default_output_overwrites(self, mock_find, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        remove_watermark("/tmp/input.png")
+        args = mock_run.call_args[0][0]
+        input_idx = args.index("--input")
+        output_idx = args.index("--output")
+        assert args[input_idx + 1] == "/tmp/input.png"
+        assert args[output_idx + 1] == "/tmp/input.png"

@@ -57,20 +57,31 @@ def _remove_watermarks(images: list[str]) -> list[str]:
             else:
                 header, b64 = "data:image/png;base64", img_data
 
-            ext = "jpg" if "jpeg" in header or "jpg" in header else "png"
+            raw_bytes = base64.b64decode(b64)
+
+            # 根據檔案魔術數字判斷實際格式（不靠 header）
+            if raw_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                ext = "png"
+                actual_ct = "image/png"
+            elif raw_bytes[:2] == b'\xff\xd8':
+                ext = "jpg"
+                actual_ct = "image/jpeg"
+            else:
+                ext = "png"
+                actual_ct = "image/png"
 
             # 存到暫存檔
             with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
-                tmp.write(base64.b64decode(b64))
+                tmp.write(raw_bytes)
                 tmp_path = tmp.name
 
             # 去水印（覆蓋原檔）
             out_path = remove_watermark(tmp_path)
 
-            # 讀回 base64
+            # 讀回 base64（用實際格式）
             raw = Path(out_path).read_bytes()
             new_b64 = base64.b64encode(raw).decode("ascii")
-            cleaned.append(f"{header},{new_b64}")
+            cleaned.append(f"data:{actual_ct};base64,{new_b64}")
 
             # 清理暫存
             Path(tmp_path).unlink(missing_ok=True)
