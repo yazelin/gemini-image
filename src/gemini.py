@@ -9,22 +9,55 @@ from .selectors import SELECTORS
 
 logger = logging.getLogger(__name__)
 
-# 瀏覽器端 JS：將 img 元素轉為 base64
+# 瀏覽器端 JS：取得圖片 src 資訊（用於 debug）
+_IMG_DEBUG_JS = """
+(img) => {
+    return {
+        src: img.src ? img.src.substring(0, 100) : null,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        tagName: img.tagName,
+        className: img.className,
+    };
+}
+"""
+
+# 瀏覽器端 JS：多策略擷取圖片為 base64
 _IMG_TO_BASE64_JS = """
 (img) => {
-    return new Promise((resolve, reject) => {
-        const canvas = document.createElement('canvas');
-        const naturalImg = new Image();
-        naturalImg.crossOrigin = 'anonymous';
-        naturalImg.onload = () => {
-            canvas.width = naturalImg.naturalWidth;
-            canvas.height = naturalImg.naturalHeight;
+    return new Promise(async (resolve, reject) => {
+        const src = img.src || '';
+
+        // 策略 1：src 已經是 data URL → 直接回傳
+        if (src.startsWith('data:image')) {
+            resolve(src);
+            return;
+        }
+
+        // 策略 2：用 fetch 取得 blob → 轉 base64（適用 blob: 和 https: URL）
+        try {
+            const resp = await fetch(src);
+            const blob = await resp.blob();
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = () => reject('FileReader 失敗');
+            reader.readAsDataURL(blob);
+            return;
+        } catch (e) {
+            // fetch 失敗，嘗試 canvas
+        }
+
+        // 策略 3：canvas 繪製（備用）
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(naturalImg, 0, 0);
+            ctx.drawImage(img, 0, 0);
             resolve(canvas.toDataURL('image/png'));
-        };
-        naturalImg.onerror = () => reject('圖片載入失敗');
-        naturalImg.src = img.src;
+        } catch (e) {
+            reject('所有擷取策略都失敗：' + e.message);
+        }
     });
 }
 """
@@ -51,37 +84,43 @@ async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
     start = time.time()
 
     try:
-        # 1. 確認輸入框就緒
+        # 1. 確認輸入框就緒（等久一點，頁面可能剛導航完）
         input_el = await page.wait_for_selector(
-            SELECTORS["input"], state="visible", timeout=10_000
+            SELECTORS["input"], state="visible", timeout=15_000
         )
         if not input_el:
             return _error("browser_error", "找不到輸入框")
+        # 確保頁面完全就緒
+        await asyncio.sleep(1)
 
         # 2. 清空並輸入 prompt
         await input_el.click()
-        await input_el.fill("")
-        await page.keyboard.type(prompt, delay=20)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
+        # 用 keyboard.type 模擬逐字輸入（比 fill 更可靠）
+        await page.keyboard.type(prompt, delay=30)
+        await asyncio.sleep(1)
 
         # 3. 送出（按 Enter）
         await page.keyboard.press("Enter")
         logger.info("已送出 prompt：%s", prompt[:50])
 
         # 4. 等待回應完成
-        #    策略：等待「停止生成」按鈕出現後再消失
+        #    策略 A：等��生成的圖片出現（最可靠）
+        #    策略 B：���待 stop 按鈕消失（備用）
+        logger.info("等待 Gemini 回應...")
         try:
+            # 先等圖片出現（預留 10 秒給後續處理，避免跟 queue timeout 撞）
+            wait_ms = max((timeout - 10), 30) * 1000
             await page.wait_for_selector(
-                SELECTORS["stop_generating"], state="visible", timeout=10_000
+                SELECTORS["images"], state="visible", timeout=wait_ms
             )
+            logger.info("偵測到圖片元素")
+            # 圖片出現後再等幾秒確保完全載入（含 class .loaded）
+            await asyncio.sleep(3)
         except Exception:
-            pass  # 有時生成太快，按鈕瞬間出現又消失
-
-        await page.wait_for_selector(
-            SELECTORS["stop_generating"], state="hidden", timeout=timeout * 1000
-        )
-        # 額外等待確保圖片渲染完成
-        await asyncio.sleep(2)
+            # 圖片沒出現，可能是文字回覆或被拒絕，也等一下再檢查
+            logger.info("未偵測到圖片，等待回應文字...")
+            await asyncio.sleep(5)
 
         # 5. 檢查是否被拒絕
         response_els = await page.query_selector_all(SELECTORS["response"])
@@ -114,19 +153,43 @@ async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
             }
 
         # 7. 將圖片轉為 base64
+        #    用 Playwright API request 直接下載圖片 URL（繞過 CORS）
+        logger.info("找到 %d 個圖片元素", len(img_els))
         images = []
-        for img_el in img_els:
+        for i, img_el in enumerate(img_els):
             try:
-                base64_data = await img_el.evaluate(_IMG_TO_BASE64_JS)
-                if base64_data and base64_data.startswith("data:image"):
-                    images.append(base64_data)
+                src = await img_el.get_attribute("src")
+                logger.info("圖片 %d src：%s", i, src[:100] if src else "None")
+
+                if not src:
+                    continue
+
+                if src.startswith("data:image"):
+                    # 已經是 base64
+                    images.append(src)
+                    logger.info("圖片 %d 已是 base64", i)
+                elif src.startswith("http"):
+                    # 用 Playwright 的 request context 下載（帶 cookies，繞 CORS）
+                    import base64
+                    resp = await page.context.request.get(src)
+                    if resp.ok:
+                        body = await resp.body()
+                        content_type = resp.headers.get("content-type", "image/png")
+                        b64 = base64.b64encode(body).decode("ascii")
+                        data_url = f"data:{content_type};base64,{b64}"
+                        images.append(data_url)
+                        logger.info("圖片 %d 下載成功，%d bytes", i, len(body))
+                    else:
+                        logger.warning("圖片 %d 下載失敗：HTTP %d", i, resp.status)
+                else:
+                    logger.warning("圖片 %d 未知 src 格式：%s", i, src[:80])
             except Exception as e:
-                logger.warning("擷取圖片失敗：%s", e)
+                logger.warning("圖片 %d 擷取失敗：%s", i, e)
 
         elapsed = round(time.time() - start, 1)
 
         if not images:
-            return _error("browser_error", "圖片元素存在但無法擷取", elapsed)
+            return _error("browser_error", "圖片元素存在但無法擷取（詳見 server log）", elapsed)
 
         return {
             "success": True,
@@ -155,7 +218,7 @@ async def new_chat(page: Page) -> bool:
             return True
         # 備用：直接導航到 Gemini 首頁
         await page.goto("https://gemini.google.com/app", wait_until="domcontentloaded")
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
         logger.info("已重新導航至 Gemini 首頁")
         return True
     except Exception as e:

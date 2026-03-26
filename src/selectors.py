@@ -1,25 +1,25 @@
 """Gemini 頁面 DOM selector 集中管理
 
 Gemini 改版時只需更新此檔案的 selector 值。
-實際值需在開發時開啟 Gemini 頁面用 DevTools 確認。
+最後校準日期：2026-03-26
 """
 
 SELECTORS = {
-    # 輸入框 — Gemini 使用 contenteditable div 或 rich text editor
-    "input": "div.ql-editor[contenteditable='true']",
+    # 輸入框 — contenteditable div（Gemini 用 Angular，class 帶動態屬性）
+    "input": "[contenteditable='true']",
 
-    # 送出按鈕
-    "send": "button.send-button, button[aria-label='Send message']",
+    # 送出按鈕（備用，主要用 Enter 鍵送出）
+    "send": "button[aria-label='Send message'], button[aria-label='傳送']",
 
-    # 回應區域 — 最後一個回應訊息容器
-    "response": "message-content",
+    # 回應區域 — Angular 自訂元素
+    "response": "response-element",
 
-    # 生成的圖片 — 回應區域內的 img 標籤
-    "images": "message-content img",
+    # 生成的圖片 — generated-image 容器內的 img.image
+    "images": "generated-image img.image",
 
     # 新對話按鈕
-    "new_chat": "button[aria-label='New chat']",
+    "new_chat": "button[aria-label='New chat'], button[aria-label='新對話']",
 
     # 停止生成按鈕（用來偵測生成是否完成）
-    "stop_generating": "button[aria-label='Stop generating']",
+    "stop_generating": "button[aria-label='Stop generating'], button[aria-label='停止產生']",
 }
