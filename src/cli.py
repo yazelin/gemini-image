@@ -17,13 +17,8 @@ def _setup_logging(verbose: bool = False):
 
 async def _do_login():
     """開啟瀏覽器讓用戶手動登入 Google"""
-    from .config import Settings
-    import os
-    os.environ["HEADLESS"] = "false"
-    settings = Settings()
-
     from .browser import BrowserManager
-    bm = BrowserManager()
+    bm = BrowserManager(headless=False)  # login 一律 headed
     await bm.start()
 
     print("\n瀏覽器已開啟，請登入 Google 帳號。")
@@ -36,11 +31,11 @@ async def _do_login():
 
 async def _do_generate(prompt: str, output: str, no_watermark: bool, verbose: bool):
     """生成圖片"""
-    from .config import settings
     from .browser import BrowserManager
     from .gemini import generate_image, new_chat
+    from .config import settings
 
-    bm = BrowserManager()
+    bm = BrowserManager(headless=True)  # generate 一律 headless
     await bm.start()
 
     try:
@@ -49,8 +44,8 @@ async def _do_generate(prompt: str, output: str, no_watermark: bool, verbose: bo
             print("錯誤：瀏覽器未啟動", file=sys.stderr)
             sys.exit(1)
 
-        # 檢查登入狀態
-        logged_in = await bm.is_logged_in()
+        # 檢查登入狀態（等待頁面完全載入）
+        logged_in = await bm.is_logged_in(wait=True)
         if not logged_in:
             print("錯誤：尚未登入 Google，請先執行 `gemini-image login`", file=sys.stderr)
             sys.exit(1)

@@ -44,11 +44,12 @@ _STEALTH_SCRIPT = """
 class BrowserManager:
     """管理單一 Playwright 瀏覽器實例"""
 
-    def __init__(self) -> None:
+    def __init__(self, headless: bool | None = None) -> None:
         self._playwright = None
         self._context: BrowserContext | None = None
         self._page: Page | None = None
         self._heartbeat_task: asyncio.Task | None = None
+        self._headless_override = headless  # None = 用 settings
 
     @property
     def page(self) -> Page | None:
@@ -67,7 +68,7 @@ class BrowserManager:
         self._playwright = await async_playwright().start()
         self._context = await self._playwright.chromium.launch_persistent_context(
             profile_path,
-            headless=settings.headless,
+            headless=self._headless_override if self._headless_override is not None else settings.headless,
             locale=languages[0] if languages else "zh-TW",
             timezone_id=settings.stealth_timezone,
             user_agent=(
@@ -131,14 +132,25 @@ class BrowserManager:
         except Exception:
             return False
 
-    async def is_logged_in(self) -> bool:
-        """檢查是否已登入 Google（偵測輸入框是否存在）"""
+    async def is_logged_in(self, wait: bool = False) -> bool:
+        """檢查是否已登入 Google（偵測輸入框是否存在）
+
+        Args:
+            wait: 是否等待頁面載入完成（首次檢查用）
+        """
         if not self._page:
             return False
         try:
             from .selectors import SELECTORS
-            el = await self._page.query_selector(SELECTORS["input"])
-            return el is not None
+            if wait:
+                # Gemini 是 Angular SPA，需要等 JS 渲染完成
+                el = await self._page.wait_for_selector(
+                    SELECTORS["input"], state="visible", timeout=15_000
+                )
+                return el is not None
+            else:
+                el = await self._page.query_selector(SELECTORS["input"])
+                return el is not None
         except Exception:
             return False
 
