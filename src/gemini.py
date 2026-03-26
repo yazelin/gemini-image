@@ -173,18 +173,19 @@ async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
         if download_btns:
             for i, btn in enumerate(download_btns):
                 try:
-                    # 先 hover 圖片讓 on-hover-button 顯示，再點下載
+                    logger.info("圖片 %d：嘗試點擊下載按鈕...", i)
+                    # 先 hover 圖片讓 on-hover-button 顯示
                     if img_els and i < len(img_els):
                         await img_els[i].hover()
                         await asyncio.sleep(0.5)
                     await btn.hover()
                     await asyncio.sleep(0.3)
-
-                    # 監聽下載事件
-                    async with page.expect_download(timeout=15_000) as download_info:
-                        await btn.click(force=True)
+                    # 用 JS click（更可靠）+ 長 timeout（伺服器需要時間生成原尺寸）
+                    async with page.expect_download(timeout=120_000) as download_info:
+                        await page.evaluate("btn => btn.click()", btn)
                     download = await download_info.value
-                    # 讀取下載的檔案
+                    logger.info("圖片 %d：下載事件觸發，等待檔案寫入...", i)
+                    # 讀取下載的檔案（path() 會等到下載完成）
                     dl_path = await download.path()
                     if dl_path:
                         from pathlib import Path
