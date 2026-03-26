@@ -81,6 +81,16 @@ async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
         {"success": True, "images": [...], "prompt": ..., "elapsed_seconds": ...}
         或 {"success": False, "error": ..., "message": ...}
     """
+    # 確保 prompt 明確要求生圖（避免 Gemini 當成搜尋）
+    prompt_lower = prompt.lower().strip()
+    needs_prefix = not any(kw in prompt_lower for kw in [
+        "draw", "paint", "generate", "create an image", "create a picture",
+        "make an image", "make a picture", "illustrate",
+        "畫", "繪", "生成圖", "生成一張", "做一張", "設計",
+    ])
+    if needs_prefix:
+        prompt = f"Generate an image: {prompt}"
+
     start = time.time()
 
     try:
