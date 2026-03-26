@@ -10,13 +10,13 @@
 
 ```bash
 # uv（推薦）
-uv tool install gemini-image && playwright install chromium
+uv tool install gemini-image && gemini-image install
 
 # 或 pip
-pip install gemini-image && playwright install chromium
+pip install gemini-image && gemini-image install
 
 # 或 pipx
-pipx install gemini-image && playwright install chromium
+pipx install gemini-image && gemini-image install
 ```
 
 安裝完成後 `gemini-image` 指令全域可用。

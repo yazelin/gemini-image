@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import base64
 import logging
+import subprocess
 import sys
 from pathlib import Path
 
@@ -111,6 +112,9 @@ def main():
     )
     sub = parser.add_subparsers(dest="command", help="可用指令")
 
+    # install
+    sub.add_parser("install", help="安裝 Chromium 瀏覽器（首次使用前必須執行）")
+
     # login
     login_parser = sub.add_parser("login", help="開啟瀏覽器登入 Google")
 
@@ -131,7 +135,10 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "login":
+    if args.command == "install":
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
+
+    elif args.command == "login":
         asyncio.run(_do_login())
 
     elif args.command == "generate":
