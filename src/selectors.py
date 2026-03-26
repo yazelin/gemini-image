@@ -22,4 +22,7 @@ SELECTORS = {
 
     # 停止生成按鈕（用來偵測生成是否完成）
     "stop_generating": "button[aria-label='Stop generating'], button[aria-label='停止產生']",
+
+    # 下載原尺寸圖片按鈕（每張圖片旁邊的下載按鈕）
+    "download_image": "download-generated-image-button button",
 }

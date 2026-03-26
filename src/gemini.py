@@ -162,43 +162,54 @@ async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
                 "elapsed_seconds": elapsed,
             }
 
-        # 7. 將圖片轉為 base64
-        #    用 Playwright API request 直接下載圖片 URL（繞過 CORS）
-        logger.info("找到 %d 個圖片元素", len(img_els))
+        # 7. 透過「下載原尺寸圖片」按鈕取得完整圖片
+        import base64 as _b64
+        download_btns = await page.query_selector_all(SELECTORS["download_image"])
+        logger.info("找到 %d 個圖片元素，%d 個下載按鈕", len(img_els), len(download_btns))
+
         images = []
-        for i, img_el in enumerate(img_els):
-            try:
-                src = await img_el.get_attribute("src")
-                logger.info("圖片 %d src：%s", i, src[:100] if src else "None")
 
-                if not src:
-                    continue
+        # 優先用下載按鈕（原尺寸，去水印工具能正確處理）
+        if download_btns:
+            for i, btn in enumerate(download_btns):
+                try:
+                    # 監聽下載事件
+                    async with page.expect_download(timeout=15_000) as download_info:
+                        await btn.click()
+                    download = await download_info.value
+                    # 讀取下載的檔案
+                    dl_path = await download.path()
+                    if dl_path:
+                        from pathlib import Path
+                        raw = Path(dl_path).read_bytes()
+                        b64 = _b64.b64encode(raw).decode("ascii")
+                        # 偵測格式
+                        suggested = download.suggested_filename or ""
+                        ct = "image/jpeg" if suggested.endswith(".jpg") or suggested.endswith(".jpeg") else "image/png"
+                        images.append(f"data:{ct};base64,{b64}")
+                        logger.info("圖片 %d 下載原尺寸成功，%d bytes（%s）", i, len(raw), suggested)
+                except Exception as e:
+                    logger.warning("圖片 %d 下載按鈕失敗：%s，改用 img src", i, e)
 
-                if src.startswith("data:image"):
-                    # 已經是 base64
-                    images.append(src)
-                    logger.info("圖片 %d 已是 base64", i)
-                elif src.startswith("http"):
-                    # Google 圖片 URL 尾部有縮圖參數（如 =s1024-rj），改成 =s0 取原尺寸
-                    import base64
-                    import re
-                    full_src = re.sub(r'=s\d+[^&]*$', '=s0', src)
-                    if full_src != src:
-                        logger.info("圖片 %d 改為原尺寸 URL", i)
-                    resp = await page.context.request.get(full_src)
-                    if resp.ok:
-                        body = await resp.body()
-                        content_type = resp.headers.get("content-type", "image/png")
-                        b64 = base64.b64encode(body).decode("ascii")
-                        data_url = f"data:{content_type};base64,{b64}"
-                        images.append(data_url)
-                        logger.info("圖片 %d 下載成功，%d bytes", i, len(body))
-                    else:
-                        logger.warning("圖片 %d 下載失敗：HTTP %d", i, resp.status)
-                else:
-                    logger.warning("圖片 %d 未知 src 格式：%s", i, src[:80])
-            except Exception as e:
-                logger.warning("圖片 %d 擷取失敗：%s", i, e)
+        # 備用：直接從 img src 下載（可能是縮圖）
+        if not images:
+            for i, img_el in enumerate(img_els):
+                try:
+                    src = await img_el.get_attribute("src")
+                    if not src:
+                        continue
+                    if src.startswith("data:image"):
+                        images.append(src)
+                    elif src.startswith("http"):
+                        resp = await page.context.request.get(src)
+                        if resp.ok:
+                            body = await resp.body()
+                            content_type = resp.headers.get("content-type", "image/png")
+                            b64 = _b64.b64encode(body).decode("ascii")
+                            images.append(f"data:{content_type};base64,{b64}")
+                            logger.info("圖片 %d 從 src 下載，%d bytes", i, len(body))
+                except Exception as e:
+                    logger.warning("圖片 %d 擷取失敗：%s", i, e)
 
         elapsed = round(time.time() - start, 1)
 
