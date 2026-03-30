@@ -265,7 +265,12 @@ async def genai_generate_content(model: str, request: Request, key: str = Query(
     # 判斷是圖片生成還是文字對話
     gen_config = body.get("generationConfig", {})
     response_mime = gen_config.get("responseMimeType", "")
-    is_image = response_mime.startswith("image/")
+    response_modalities = gen_config.get("responseModalities", [])
+    is_image = (
+        response_mime.startswith("image/")
+        or "Image" in response_modalities
+        or "image" in response_modalities
+    )
 
     kind = "generate" if is_image else "chat"
     timeout = settings.default_timeout
