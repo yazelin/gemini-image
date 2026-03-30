@@ -59,18 +59,21 @@ def _setup_logging(verbose: bool = False):
     )
 
 
-async def _do_login():
+async def _do_login(worker_id: int = 0):
     """開啟瀏覽器讓用戶手動登入 Google"""
     from .browser import BrowserManager
-    bm = BrowserManager(headless=False)  # login 一律 headed
+    from .config import get_worker_profile_dir
+
+    profile_dir = get_worker_profile_dir(worker_id)
+    bm = BrowserManager(headless=False, profile_dir=profile_dir)
     await bm.start()
 
-    print("\n瀏覽器已開啟，請登入 Google 帳號。")
-    print("登入完成後按 Enter 關閉瀏覽器...")
+    print(f"\nWorker {worker_id} 瀏覽器已開啟（profile: {profile_dir}）")
+    print("請登入 Google 帳號。登入完成後按 Enter 關閉瀏覽器...")
     await asyncio.get_event_loop().run_in_executor(None, input)
 
     await bm.stop()
-    print("登入狀態已儲存。之後可以用 headless 模式生圖。")
+    print(f"Worker {worker_id} 登入狀態已儲存。")
 
 
 async def _do_chat(prompt: str, verbose: bool):
@@ -231,7 +234,7 @@ def main():
         print("\n下一步：執行 `gemini-web login` 登入 Google")
 
     elif args.command == "login":
-        asyncio.run(_do_login())
+        asyncio.run(_do_login(args.worker))
 
     elif args.command == "chat":
         _setup_logging(getattr(args, "verbose", False))
