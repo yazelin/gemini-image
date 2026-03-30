@@ -18,6 +18,7 @@ WorkingDirectory=${WORK_DIR}
 ExecStart=${WORK_DIR}/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8070
 Restart=on-failure
 RestartSec=10
+EnvironmentFile=-${WORK_DIR}/.env
 Environment=HEADLESS=true
 Environment=HOME=${USER_HOME}
 Environment=PLAYWRIGHT_BROWSERS_PATH=${USER_HOME}/.cache/ms-playwright

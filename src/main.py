@@ -205,11 +205,22 @@ async def api_new_chat():
 # ── Google GenAI API 相容端點 ──
 
 
-def _verify_api_key(key: str | None):
+def _extract_api_key(request: Request, key: str | None) -> str | None:
+    """從 header 或 query string 提取 API key"""
+    # 優先：x-goog-api-key header（google-genai SDK 用這個）
+    header_key = request.headers.get("x-goog-api-key")
+    if header_key:
+        return header_key
+    # 備用：query string ?key=（舊式 REST API）
+    return key
+
+
+def _verify_api_key(request: Request, key: str | None):
     """驗證 API 金鑰（如果有設定 API_KEYS）"""
     if not settings.api_keys:
         return  # 沒設定 = 不驗證
-    if not key or key not in settings.api_keys:
+    actual_key = _extract_api_key(request, key)
+    if not actual_key or actual_key not in settings.api_keys:
         raise HTTPException(status_code=403, detail="Invalid API key")
 
 
@@ -219,7 +230,7 @@ async def genai_generate_content(model: str, request: Request, key: str = Query(
 
     支援文字對話和圖片生成，格式完全相容 google-genai SDK。
     """
-    _verify_api_key(key)
+    _verify_api_key(request, key)
 
     body = await request.json()
 
