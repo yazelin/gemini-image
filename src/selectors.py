@@ -1,8 +1,31 @@
 """Gemini 頁面 DOM selector 集中管理
 
 Gemini 改版時只需更新此檔案的 selector 值。
-最後校準日期：2026-03-26
+最後校準日期：2026-03-30
 """
+
+# API model name → Gemini 網頁版模式名稱
+MODEL_MODE_MAP = {
+    # Flash（快捷）
+    "gemini-2.5-flash": "快捷",
+    "gemini-3-flash": "快捷",
+    "gemini-3-flash-preview": "快捷",
+    "gemini-3.1-flash": "快捷",
+    "gemini-3.1-flash-preview": "快捷",
+    "gemini-3.1-flash-image-preview": "快捷",
+    "flash": "快捷",
+    # Thinking（思考型）
+    "gemini-2.5-flash-thinking": "思考型",
+    "gemini-3-flash-thinking": "思考型",
+    "thinking": "思考型",
+    # Pro
+    "gemini-3-pro": "Pro",
+    "gemini-3-pro-preview": "Pro",
+    "gemini-3-pro-image-preview": "Pro",
+    "gemini-3.1-pro": "Pro",
+    "gemini-3.1-pro-preview": "Pro",
+    "pro": "Pro",
+}
 
 SELECTORS = {
     # 輸入框 — contenteditable div（Gemini 用 Angular，class 帶動態屬性）
@@ -28,4 +51,9 @@ SELECTORS = {
 
     # 下載原尺寸圖片按鈕（每張圖片旁邊的下載按鈕）
     "download_image": "download-generated-image-button button",
+
+    # 模式挑選器
+    "mode_picker": "button[aria-label='開啟模式挑選器'], button[aria-label='Open mode picker']",
+    "mode_menu_item": "button[role='menuitem']",
+    "mode_title": ".mode-title",
 }

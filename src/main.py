@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .browser import browser_manager
 from .config import settings
-from .gemini import chat, generate_image, new_chat
+from .gemini import chat, generate_image, new_chat, switch_model
 from .queue import RequestQueue, QueueFullError
 
 logging.basicConfig(
@@ -52,8 +52,14 @@ async def _handle_chat(prompt: str, timeout: int) -> dict:
     return result
 
 
-async def _dispatch(kind: str, prompt: str, timeout: int) -> dict:
+async def _dispatch(kind: str, prompt: str, model: str, timeout: int) -> dict:
     """根據請求類型分派到對應 handler"""
+    # 切換模型（如果有指定）
+    if model:
+        page = browser_manager.page
+        if page:
+            await switch_model(page, model)
+
     if kind == "chat":
         return await _handle_chat(prompt, timeout)
     return await _handle_generate(prompt, timeout)
@@ -265,7 +271,7 @@ async def genai_generate_content(model: str, request: Request, key: str = Query(
     timeout = settings.default_timeout
 
     try:
-        result = await request_queue.submit(kind, prompt, timeout=timeout)
+        result = await request_queue.submit(kind, prompt, timeout=timeout, model=model)
     except QueueFullError:
         raise HTTPException(status_code=429, detail="Queue full")
     except asyncio.TimeoutError:

@@ -5,7 +5,7 @@ import time
 
 from playwright.async_api import Page
 
-from .selectors import SELECTORS
+from .selectors import MODEL_MODE_MAP, SELECTORS
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,63 @@ _BLOCK_PHRASES = [
     "against my safety",
     "violates my safety",
 ]
+
+
+async def switch_model(page: Page, model: str) -> bool:
+    """切換 Gemini 模式（快捷/思考型/Pro）
+
+    Args:
+        model: API model name（如 "gemini-2.5-flash", "gemini-3-pro"）
+
+    Returns:
+        True 表示切換成功或不需要切換
+    """
+    target_mode = MODEL_MODE_MAP.get(model)
+    if not target_mode:
+        logger.info("未知的 model '%s'，使用預設模式", model)
+        return True
+
+    try:
+        picker = await page.query_selector(SELECTORS["mode_picker"])
+        if not picker:
+            logger.warning("找不到模式挑選器")
+            return False
+
+        # 檢查目前模式
+        current_text = (await picker.inner_text()).strip()
+        if target_mode in current_text:
+            logger.info("目前已是 %s 模式", target_mode)
+            return True
+
+        # 開啟模式選單
+        await picker.click()
+        await asyncio.sleep(0.5)
+
+        # 找到目標選項並點擊
+        menu_items = await page.query_selector_all(SELECTORS["mode_menu_item"])
+        for item in menu_items:
+            title_el = await item.query_selector(SELECTORS["mode_title"])
+            if title_el:
+                title = (await title_el.inner_text()).strip()
+                if title == target_mode:
+                    await item.click()
+                    # 等待頁面重新載入穩定
+                    await asyncio.sleep(2)
+                    await page.wait_for_selector(
+                        SELECTORS["input"], state="visible", timeout=15_000
+                    )
+                    await asyncio.sleep(1)
+                    logger.info("已切換至 %s 模式", target_mode)
+                    return True
+
+        # 沒找到，關閉選單
+        await page.keyboard.press("Escape")
+        logger.warning("找不到模式 '%s'", target_mode)
+        return False
+
+    except Exception as e:
+        logger.warning("切換模式失敗：%s", e)
+        return False
 
 
 async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
