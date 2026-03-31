@@ -168,6 +168,14 @@ async def genai_generate_content(model: str, request: Request, key: str = Query(
         or "image" in response_modalities
     )
 
+    # 強制 JSON 回應（模擬 responseMimeType: application/json）
+    if response_mime == "application/json" and not is_image:
+        prompt = (
+            "You MUST respond in valid JSON format only. "
+            "No markdown, no code blocks, no extra explanation. "
+            "Output raw JSON.\n\n" + prompt
+        )
+
     kind = "generate" if is_image else "chat"
     timeout = settings.default_timeout
 
