@@ -212,9 +212,8 @@ async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
                 SELECTORS["images"], state="visible", timeout=wait_ms
             )
             logger.info("偵測到圖片元素")
-            # 圖片出現後再等 1 秒確保 hover 按鈕可用 (從 3 秒縮短)
-            # 因為 openclaw 對 image gen 有 60 秒硬編碼 timeout
-            await asyncio.sleep(1)
+            # 圖片出現後等 3 秒讓 Gemini 完整載入 (含 .loaded class)
+            await asyncio.sleep(3)
         except Exception:
             # 圖片沒出現，可能是文字回覆或被拒絕，也等一下再檢查
             logger.info("未偵測到圖片，等待回應文字...")
@@ -268,10 +267,10 @@ async def generate_image(page: Page, prompt: str, timeout: int = 60) -> dict:
                         await asyncio.sleep(0.5)
                     await btn.hover()
                     await asyncio.sleep(0.3)
-                    # 用 JS click（更可靠）+ 30 秒 timeout（從 240 秒縮短;
-                    # 大多數情況下載 < 10 秒,取此值留充裕 buffer 但避開 openclaw
-                    # 60 秒 image gen timeout）
-                    async with page.expect_download(timeout=30_000) as download_info:
+                    # 120 秒 download timeout (Gemini Pro 高解析度原圖伺服器
+                    # 偶爾需要 > 30 秒生成。openclaw 內建 image_generate 工具的
+                    # 60 秒上限我們改用自製 skill 繞開,所以這裡可以給寬鬆時間)
+                    async with page.expect_download(timeout=120_000) as download_info:
                         await page.evaluate("btn => btn.click()", btn)
                     download = await download_info.value
                     logger.info("圖片 %d：下載事件觸發，等待檔案寫入...", i)
