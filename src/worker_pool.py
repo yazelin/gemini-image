@@ -144,6 +144,8 @@ class WorkerPool:
             if not ref_b64:
                 self._pending_resets[worker_id] = asyncio.create_task(new_chat(page))
                 return {"success": False, "error": "invalid_input", "message": "edit 需要 reference_image"}
+            # 強制切到 Banana 模型（網頁版「快捷」），普通 chat 模式不會做 image-to-image
+            await switch_model(page, "gemini-3.1-flash-image-preview")
             result = await edit_image(page, prompt, ref_b64, timeout)
             # edit 模式同 generate：成功時做去浮水印
             if result.get("success") and result.get("images"):

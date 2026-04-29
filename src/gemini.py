@@ -436,41 +436,21 @@ async def edit_image(
         except Exception:
             pass
 
-        # 1.7 切到 Create image 模式（沿用 generate_image 同邏輯）
-        switched_to_create_image = False
-        try:
-            tools_btn = await page.wait_for_selector(
-                SELECTORS["tools_button"], state="visible", timeout=8_000
-            )
-            if tools_btn:
-                await tools_btn.click()
-                await asyncio.sleep(1.5)
-                create_img_btn = await page.wait_for_selector(
-                    SELECTORS["create_image"], state="visible", timeout=5_000
-                )
-                if create_img_btn:
-                    await create_img_btn.click(timeout=5_000)
-                    await asyncio.sleep(2)
-                    switched_to_create_image = True
-                    input_el = await page.wait_for_selector(
-                        SELECTORS["input"], state="visible", timeout=10_000
-                    )
-                else:
-                    await page.keyboard.press("Escape")
-                    await asyncio.sleep(0.5)
-        except Exception as e:
-            logger.warning("切換 Create image 模式失敗：%s，繼續嘗試上傳", e)
-            try:
-                await page.keyboard.press("Escape")
-                await asyncio.sleep(0.3)
-            except Exception:
-                pass
+        # 1.7 image edit 不切 Create image 模式
+        # 原因：Create image 模式的 UI 沒有上傳檔案選單；Banana 模型在普通
+        # chat 模式下接收「圖片 + prompt」會自動做 image-to-image edit
+        switched_to_create_image = False  # 標記給後段 prompt 處理用
 
-        # 2. 上傳 reference image — 用 expect_file_chooser 攔截 file dialog
-        logger.info("點擊上傳按鈕、等 file chooser...")
+        # 2. 上傳 reference image
+        # 流程：點 upload button → 選單彈出 → 點「上傳檔案」menuitem → file chooser
+        # 兩段 click 都包在 expect_file_chooser 內，由 Playwright 攔截 file dialog
+        logger.info("點擊上傳按鈕 + 選單，等 file chooser...")
         try:
-            async with page.expect_file_chooser(timeout=10_000) as fc_info:
+            async with page.expect_file_chooser(timeout=15_000) as fc_info:
                 await page.click(SELECTORS["upload_button"])
+                # 等選單 render（mat-menu Angular 動畫約 200ms）
+                await asyncio.sleep(0.8)
+                await page.click(SELECTORS["upload_menu_item_local"])
             file_chooser = await fc_info.value
             await file_chooser.set_files(tmp_path)
             logger.info("已 set_files：%s（%d bytes）", tmp_path, len(img_bytes))
